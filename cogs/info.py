@@ -46,7 +46,7 @@ class Oops(ui.View):
     async def edit_command(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(self.modal.copy())
         try:
-            await interaction.delete_original_response()
+            await interaction.followup.send('', ephemeral=True)
         except:
             pass
 
@@ -354,7 +354,7 @@ class CustomCommands(commands.Cog):
     async def cc_create(self, interaction: discord.Interaction):
         await interaction.response.send_modal(CreateCommandModal(self.bot))
         try:
-            await interaction.delete_original_response()
+            await interaction.followup.send('', ephemeral=True)
         except:
             pass
 
@@ -370,7 +370,7 @@ class CustomCommands(commands.Cog):
         modal.update(result)
         await interaction.response.send_modal(modal)
         try:
-            await interaction.delete_original_response()
+            await interaction.followup.send('', ephemeral=True)
         except:
             pass
 
