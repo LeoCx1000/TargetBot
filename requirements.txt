@@ -1,0 +1,5 @@
+discord
+jishaku
+python-dotenv
+asyncpg
+asyncpg-stubs
