@@ -137,7 +137,7 @@ class TargetBot(commands.Bot):
 
     def __init__(self, pool: asyncpg.Pool[asyncpg.Record], session: aiohttp.ClientSession):
         super().__init__(
-            command_prefix="!?",
+            command_prefix="!",
             intents=discord.Intents.all(),
             case_insensitive=True,
             allowed_mentions=discord.AllowedMentions.none(),
