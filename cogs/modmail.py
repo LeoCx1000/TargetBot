@@ -14,6 +14,8 @@ CATEGORY_ID = 881734985244086342
 pattern = re.compile(r"Maya (?P<NUM>\d+): (?P<MSG>.+)")
 log = getLogger(__name__)
 
+async def setup(bot: commands.Bot):
+    await bot.add_cog(ModMail(bot))
 
 @dataclass
 class DM:
@@ -40,7 +42,7 @@ class DM:
         self.wh_url = record["dm_webhook"]
 
 
-class TestingShit(commands.Cog):
+class ModMail(commands.Cog):
     def __init__(self, bot) -> None:
         self.bot: TargetBot = bot
         self.dms: dict[int, DM] = {}
