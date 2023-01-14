@@ -118,6 +118,7 @@ class TargetBot(commands.Bot):
         "cogs.info",
         "cogs.handler",
         "cogs.autohelp",
+        "cogs.modmail",
     )
 
     CC_QUERY = """
