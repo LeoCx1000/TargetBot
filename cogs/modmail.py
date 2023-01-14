@@ -64,7 +64,7 @@ class ModMail(commands.Cog):
         if isinstance(obj, discord.abc.User):
             dm = self.dms.get(obj.id)
             query = "SELECT * FROM dm_flow WHERE user_id = $1"
-            fallback = "INSERT INTO dm_flow (user_id) VALUES $1"
+            fallback = "INSERT INTO dm_flow (user_id) VALUES ($1)"
         else:
 
             def pred(dm: DM):
