@@ -11,10 +11,15 @@ support_link = (
 
 class automod(commands.Cog):
     IGNORED_ROLES = [
-        801386133815951361,  # @staff
+        740351860325613598,  # @ Creator
+        717151202135113808,  # @ Admin
+        763960697506758676,  # @ Head Mod
+        801385716017004544,  # @ Moderator 
+        813988893912203277,  # @ helper
+        754743164883173387,  # @minecraft mod
         717144039568441394,  # @Sublimer
-        717144455156858940,  # @Sapphirer
-        874395441477873694,  # @Steeler
+        717144455156858940,  # @ Sapphirer
+        874395441477873694,  # @ Steeler
         869040956350033930,  # @Forged Steeler
     ]
 
