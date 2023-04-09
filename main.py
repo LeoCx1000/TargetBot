@@ -10,6 +10,7 @@ from discord.ext import commands
 from asyncpg.transaction import Transaction
 from typing import Type, Tuple, Generic, Optional, TypeVar
 from cogs.utils.custom_commands import HandlerCommand
+from cogs.utils.error_manager import ExceptionsManager
 
 _log = logging.getLogger("TargetBot")
 
@@ -147,6 +148,7 @@ class TargetBot(commands.Bot):
         )
         self.pool: asyncpg.Pool[asyncpg.Record] = pool
         self.session: aiohttp.ClientSession = session
+        self.errors = ExceptionsManager(self)
 
     async def on_ready(self):
         _log.info("Logged in as %s", self.user)

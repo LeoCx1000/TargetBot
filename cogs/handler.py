@@ -1,5 +1,3 @@
-import io
-import traceback
 from logging import getLogger
 
 import discord
@@ -26,7 +24,7 @@ class Handler(commands.Cog, name="Handler"):
         raise RuntimeError("Channel not found.")
 
     @commands.Cog.listener("on_command_error")
-    async def error_handler(self, ctx: commands.Context, error):
+    async def error_handler(self, ctx: commands.Context, error: Exception):
         error = getattr(error, "original", error)
 
         ignored = (
@@ -42,27 +40,7 @@ class Handler(commands.Cog, name="Handler"):
         elif isinstance(error, commands.UserInputError):
             await ctx.send(str(error))
         else:
-            traceback_string = "".join(traceback.format_exception(error))
-            _log.error("Unhandled Exception in command %s", ctx.command, exc_info=error)
-            if ctx.guild:
-                command_data = (
-                    f"by: {ctx.author.name} ({ctx.author.id})"
-                    f"\ncommand: {ctx.message.content[0:1700]}"
-                    f"\nguild_id: {ctx.guild.id} - channel_id: {ctx.channel.id}"
-                    f"\nowner: {ctx.guild.owner} ({getattr(ctx.guild.owner, 'id', None)})"
-                )
-            else:
-                command_data = f"command: {ctx.message.content[0:1700]}" f"\nCommand executed in DMs"
-
-            to_send = f"```yaml\n{command_data}``````py\n{ctx.command} " f"command raised an error:\n{traceback_string}\n```"
-            if len(to_send) < 2000:
-                await self.error_channel.send(to_send)
-
-            else:
-                await self.error_channel.send(
-                    f"```yaml\n{command_data}``````py Command: {ctx.command}" f"Raised the following error:\n```",
-                    file=discord.File(io.BytesIO(traceback_string.encode()), filename="traceback.py"),
-                )
+            await self.bot.errors.add_error(error=error, ctx=ctx)
 
     @commands.Cog.listener()
     async def on_guild_channel_create(self, channel):
