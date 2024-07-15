@@ -21,6 +21,7 @@ class automod(commands.Cog):
         717144455156858940,  # @ Sapphirer
         874395441477873694,  # @ Steeler
         869040956350033930,  # @Forged Steeler
+        850214183961886751,  # downloads
     ]
 
     def __init__(self, bot):
@@ -38,28 +39,15 @@ class automod(commands.Cog):
         ):
             return
 
-        if message.author.get_role(717144906350592061):
-            embed = discord.Embed(
-                description=(
-                    "I see you're asking about downloads. To access the download chnanel, you need to have a "
-                    "role `Steeler` or higher, but you seem to have the `Stoner` role.\nYou can get a `Steeler` "
-                    "or higher subscription here: [patreon.com/stylized](https://www.patreon.com/Stylized)."
-                    "\n_if you already have one, unlink and relink your patreon_"
-                ),
-                color=message.guild.me.color,
-            )
-        else:
-            embed = discord.Embed(
-                description=(
-                    "I see you're asking about downloads. To access the download channel, you need to have a "
-                    "role `Steeler` or higher, but you don't seem to have any roles.\nIf you already purchased "
-                    f"a `Steeler` or higher subscription, link your Patreon to Discord. [[more info]]({support_link})"
-                    f"\nIf your account is already linked, unlink and relink it. [[more info]]({support_link}) about "
-                    "how to get your role.\nIf you don't already have a `Steeler` or higher subscription, you can get "
-                    "one at [patreon.com/stylized](https://www.patreon.com/Stylized)."
-                ),
-                color=message.guild.me.color,
-            )
+        embed = discord.Embed(
+            description=(
+                "Please check out this announcement and any subsequent ones for information on the state of affairs of the resource pack: "
+                    "https://discord.com/channels/717140270789033984/717149588141768815/1260330455027155047 "
+                f"\n\nIf you were a previous subscriber, we recommend to cancel the membership for the time being, and not re-subscribe. "
+                f"If you were not, you can purchase the pack at https://patreon.com/Stylized"
+            ),
+            color=message.guild.me.color,
+        )
 
         embed.set_author(name="Automatic support", icon_url="https://i.imgur.com/GTttbJW.png")
         await message.reply(embed=embed)
