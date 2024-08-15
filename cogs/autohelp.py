@@ -21,7 +21,7 @@ class automod(commands.Cog):
         717144455156858940,  # @ Sapphirer
         874395441477873694,  # @ Steeler
         869040956350033930,  # @Forged Steeler
-        850214183961886751,  # downloads
+        776996394191814658,  # downloads
     ]
 
     def __init__(self, bot):
