@@ -151,7 +151,7 @@ class ModMail(commands.Cog):
         files = [
             await a.to_file()
             for a in message.attachments
-            if a.size >= self.dm_category.guild.filesize_limit
+            if a.size <= self.dm_category.guild.filesize_limit
         ]
 
         if len(files) > len(message.attachments):
@@ -188,7 +188,7 @@ class ModMail(commands.Cog):
         files = [
             await a.to_file()
             for a in message.attachments
-            if a.size >= self.dm_category.guild.filesize_limit
+            if a.size <= self.dm_category.guild.filesize_limit
         ]
 
         if len(files) > len(message.attachments):
