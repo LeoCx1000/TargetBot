@@ -234,7 +234,7 @@ class ModMail(commands.Cog):
 
         content = f"**{message.author}:** {message.content}"
 
-        reply = discord.utils.MISSING
+        reply = None
         reference = message.reference
         if reference and reference.message_id:
 
