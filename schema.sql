@@ -1,9 +1,7 @@
  
-CREATE TABLE IF NOT EXISTS dm_flow (
+CREATE TABLE IF NOT EXISTS modmail (
     user_id BIGINT PRIMARY KEY,
-    dms_enabled BOOLEAN NOT NULL DEFAULT TRUE,
-    dm_channel BIGINT NULL,
-    dm_webhook TEXT NULL
+    channel_id BIGINT NULL
 );
 
 

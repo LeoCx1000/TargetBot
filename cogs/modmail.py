@@ -39,29 +39,6 @@ class Webhook:
         self.send_lock = asyncio.Lock()
         self.channel_ids: list[int] = []
 
-        # content = message.content
-
-        # reference = message.reference
-        # if reference and reference.message_id:
-        #     msgs = discord.utils.find(lambda x: x[0].id == reference.message_id, dm.messages)
-        #     if msgs:
-        #         content += f"\n\n*replying to [this message](<{msgs[1].jump_url}>)*"
-
-        # files = [await a.to_file() for a in message.attachments if a.size <= self.forum_channel.guild.filesize_limit]
-
-        # if len(files) > len(message.attachments):
-        #     content += "\n\n*some files could not be sent due to filesize limit*"
-
-        # try:
-        #     try:
-        #         wh_msg = await webhook.send(content=content, files=files, wait=True)
-        #         dm.messages.append((message, wh_msg))
-        #         await message.add_reaction("\N{WHITE HEAVY CHECK MARK}")
-        #     except discord.HTTPException:
-        #         await message.add_reaction("\N{WARNING SIGN}")
-        # except discord.HTTPException:
-        #     pass
-
     async def send(self, *, message: discord.Message, thread: discord.Thread, dm: DM):
         async with self.send_lock:
             try:
@@ -179,7 +156,6 @@ class ModMail(commands.Cog):
             if fallback:
                 await self.bot.pool.execute(fallback, obj.id)
                 record = await self.bot.pool.fetchrow(query, obj.id)
-                await obj.send("You are now contacting the moderators. They will reply soon.")
         if record:
             dm = DM.from_record(record)
             self.dms[obj.id] = dm
@@ -205,6 +181,13 @@ class ModMail(commands.Cog):
             await message.delete()
 
     async def make_thread(self, message: discord.Message, dm: DM) -> discord.Thread:
+        await message.author.send(
+            embed=discord.Embed(
+                title="You are now in contact with the StylizedRP moderators.",
+                description="They will reply at their soonest convenience, please be patient.",
+            )
+        )
+
         thread, _ = await self.forum_channel.create_thread(
             name=str(message.author), content=f'DM with user of ID: {message.author.id}'
         )
@@ -251,7 +234,7 @@ class ModMail(commands.Cog):
 
         content = f"**{message.author}:** {message.content}"
 
-        reply = None
+        reply = discord.utils.MISSING
         reference = message.reference
         if reference and reference.message_id:
 
@@ -326,6 +309,7 @@ class ModMail(commands.Cog):
 
     @commands.Cog.listener("on_raw_message_delete")
     async def delete_listener(self, data: discord.RawMessageDeleteEvent):
+
         message_data = await self.find_thread_messages(data)
         if not message_data:
             return
