@@ -2,76 +2,175 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from logging import getLogger
 from typing_extensions import Self
-import re
 import discord
 import asyncpg
+import asyncio
 from discord.ext import commands
 from main import TargetBot
 
 
-CATEGORY_ID = 881734985244086342
+FORUM_CHANNEL_ID = 1360292638993154260
+BANNED_TAG_ID = 1360292846363476068
 
-pattern = re.compile(r"Maya (?P<NUM>\d+): (?P<MSG>.+)")
 log = getLogger(__name__)
 
-async def setup(bot: commands.Bot):
-    await bot.add_cog(ModMail(bot))
 
 @dataclass
 class DM:
     user_id: int
-    enabled: bool
-    channel: int | None = None
-    wh_url: str | None = None
-    messages: list[tuple[discord.Message, discord.Message]] = field(
-        default_factory=list
-    )
+    thread_id: int | None = None
+    messages: list[tuple[discord.Message, discord.Message]] = field(default_factory=list)
+    # list[tuple[(message in DMs, message in thread)]]
 
     @classmethod
     def from_record(cls, record: asyncpg.Record) -> Self:
         return cls(
             user_id=record["user_id"],
-            enabled=record["dms_enabled"],
-            channel=record["dm_channel"],
-            wh_url=record["dm_webhook"],
+            thread_id=record["channel_id"],
         )
 
     def update(self, record: asyncpg.Record) -> None:
-        self.enabled = record["dms_enabled"]
-        self.channel = record["dm_channel"]
-        self.wh_url = record["dm_webhook"]
+        self.thread_id = record["channel_id"]
+
+
+class Webhook:
+    def __init__(self, webhook: discord.Webhook) -> None:
+        self.webhook = webhook
+        self.send_lock = asyncio.Lock()
+        self.channel_ids: list[int] = []
+
+        # content = message.content
+
+        # reference = message.reference
+        # if reference and reference.message_id:
+        #     msgs = discord.utils.find(lambda x: x[0].id == reference.message_id, dm.messages)
+        #     if msgs:
+        #         content += f"\n\n*replying to [this message](<{msgs[1].jump_url}>)*"
+
+        # files = [await a.to_file() for a in message.attachments if a.size <= self.forum_channel.guild.filesize_limit]
+
+        # if len(files) > len(message.attachments):
+        #     content += "\n\n*some files could not be sent due to filesize limit*"
+
+        # try:
+        #     try:
+        #         wh_msg = await webhook.send(content=content, files=files, wait=True)
+        #         dm.messages.append((message, wh_msg))
+        #         await message.add_reaction("\N{WHITE HEAVY CHECK MARK}")
+        #     except discord.HTTPException:
+        #         await message.add_reaction("\N{WARNING SIGN}")
+        # except discord.HTTPException:
+        #     pass
+
+    async def send(self, *, message: discord.Message, thread: discord.Thread, dm: DM):
+        async with self.send_lock:
+            try:
+                content = message.content + '\n'
+                files: list[discord.File] = []
+                errored: list[str] = []
+                for attachment in message.attachments:
+                    if attachment.size < thread.guild.filesize_limit:
+                        files.append(await attachment.to_file())
+                    else:
+                        errored.append(f"[{attachment.filename}](<{attachment.url}>)")
+
+                if errored:
+                    content += f"\n-# Extra (too big) files: {', '.join(errored)}"
+
+                reference = message.reference
+                if reference and reference.message_id:
+                    msgs = discord.utils.find(lambda x: x[0].id == reference.message_id, dm.messages)
+                    if msgs:
+                        content += f"\n-# replying to [this message](<{msgs[1].jump_url}>)"
+
+                if len(content) > 2000:
+                    embeds = [discord.Embed(description=content)]
+                    content = ""
+                else:
+                    embeds = []
+
+                message_sent = await self.webhook.send(
+                    content=content,
+                    files=files,
+                    embeds=embeds,
+                    username=message.author.name,
+                    avatar_url=message.author.display_avatar.url,
+                    thread=thread,
+                    wait=True,
+                )
+                dm.messages.append((message, message_sent))
+
+            except discord.HTTPException as e:
+                await message.add_reaction('\N{WARNING SIGN}')
+                await message.author.send(
+                    embed=discord.Embed(
+                        description='Failed to send message. You must provide <content> or <files>, or both.',
+                        color=discord.Color.red(),
+                    ),
+                    delete_after=20,
+                )
+                log.error('Could not send message', exc_info=e)
+
+
+class WebhookManager:
+    def __init__(self, webhooks: list[discord.Webhook]) -> None:
+        self.webhooks = [Webhook(w) for w in webhooks]
+        self._get_lock = asyncio.Lock()
+
+    async def get_webhook(self, channel_id: int) -> Webhook:
+        async with self._get_lock:
+            webhook_list = [w for w in self.webhooks if channel_id in w.channel_ids]
+            if not webhook_list:
+                kps = {len(w.channel_ids): w for w in self.webhooks}
+                webhook = kps[min(kps.keys())]
+                webhook.channel_ids.append(channel_id)
+                return webhook
+            return webhook_list[0]
 
 
 class ModMail(commands.Cog):
     def __init__(self, bot) -> None:
         self.bot: TargetBot = bot
         self.dms: dict[int, DM] = {}
+        self.manager: WebhookManager | None = None
+
+    async def get_manager(self) -> WebhookManager:
+        await self.bot.wait_until_ready()
+        if not self.manager:
+            webhooks = await self.forum_channel.webhooks()
+            if not webhooks:
+                while True:
+                    try:
+                        await self.forum_channel.create_webhook(name="ModMail")
+                    except:
+                        log.error("Failed creating webhook.")
+                        break
+            self.manager = WebhookManager(webhooks)
+        return self.manager
 
     @property
-    def dm_category(self) -> discord.CategoryChannel:
+    def forum_channel(self) -> discord.ForumChannel:
         if not self.bot.is_ready():
             raise RuntimeError("Bot not ready")
-        channel = self.bot.get_channel(CATEGORY_ID)
+        channel = self.bot.get_channel(FORUM_CHANNEL_ID)
         if not channel:
             raise RuntimeError("Channel not found")
-        assert isinstance(channel, discord.CategoryChannel)
+        assert isinstance(channel, discord.ForumChannel)
         return channel
 
-    async def get_dm_object(
-        self, obj: discord.User | discord.Member | discord.TextChannel
-    ) -> DM | None:
+    async def get_dm_object(self, obj: discord.User | discord.Member | discord.Thread) -> DM | None:
         """gets a DM object from the database or cache"""
         if isinstance(obj, discord.abc.User):
             dm = self.dms.get(obj.id)
-            query = "SELECT * FROM dm_flow WHERE user_id = $1"
-            fallback = "INSERT INTO dm_flow (user_id) VALUES ($1)"
+            query = "SELECT * FROM modmail WHERE user_id = $1"
+            fallback = "INSERT INTO modmail (user_id) VALUES ($1)"
         else:
 
             def pred(dm: DM):
-                return dm.channel == obj.id
+                return dm.thread_id == obj.id
 
             dm = discord.utils.find(pred, self.dms.values())
-            query = "SELECT * FROM dm_flow WHERE dm_channel = $1"
+            query = "SELECT * FROM modmail WHERE channel_id = $1"
             fallback = None
         if dm:
             return dm
@@ -80,9 +179,7 @@ class ModMail(commands.Cog):
             if fallback:
                 await self.bot.pool.execute(fallback, obj.id)
                 record = await self.bot.pool.fetchrow(query, obj.id)
-                await obj.send(
-                    "You are now contacting the moderators. They will reply soon."
-                )
+                await obj.send("You are now contacting the moderators. They will reply soon.")
         if record:
             dm = DM.from_record(record)
             self.dms[obj.id] = dm
@@ -96,100 +193,88 @@ class ModMail(commands.Cog):
 
         if message.channel.type is discord.ChannelType.private:
             dm = await self.get_dm_object(message.author)
-            if dm:
-                if dm.enabled:
-                    await self.process_dm(message, dm)
-                else:
-                    return await message.author.send(
-                        "You are blacklisted from the modmail"
-                    )
-            else:
-                return
 
-        elif (
-            isinstance(message.channel, discord.TextChannel)
-            and message.channel.category_id == CATEGORY_ID
-        ):
+            if dm:
+                await self.process_dm(message, dm)
+            return
+
+        elif isinstance(message.channel, discord.Thread) and message.channel.parent_id == FORUM_CHANNEL_ID:
             dm = await self.get_dm_object(message.channel)
             if dm:
                 return await self.process_message(message, dm)
             await message.delete()
 
-    async def process_dm(self, message: discord.Message, dm: DM) -> None:
+    async def make_thread(self, message: discord.Message, dm: DM) -> discord.Thread:
+        thread, _ = await self.forum_channel.create_thread(
+            name=str(message.author), content=f'DM with user of ID: {message.author.id}'
+        )
+        data = await self.bot.pool.fetchrow(
+            'INSERT INTO modmail (user_id, channel_id) VALUES ($1, $2) ON CONFLICT (user_id) DO UPDATE SET channel_id = $2 RETURNING *',
+            message.author.id,
+            thread.id,
+        )
+        if data:
+            dm.update(data)
+        return thread
+
+    async def process_dm(self, message: discord.Message, dm: DM):
         """Takes a message and sends it to the DM channel"""
-        channel = self.dm_category.guild.get_channel(dm.channel or 0)
-        if not channel:
-            channel = await self.dm_category.create_text_channel(
-                name=str(message.author), topic=str(message.author.id)
-            )
-            webhook = await channel.create_webhook(
-                name=message.author.name,
-                avatar=await message.author.display_avatar.read(),
-            )
+        if not dm.thread_id:
+            thread = await self.make_thread(message, dm)
+        else:
+            thread = self.forum_channel.get_thread(dm.thread_id)
+
+        if not thread:
+            thread = await self.make_thread(message, dm)
+
             row = await self.bot.pool.fetchrow(
-                "UPDATE dm_flow SET dm_channel = $1, dm_webhook = $2 WHERE user_id = $3 RETURNING *",
-                channel.id,
-                webhook.url,
+                "UPDATE modmail SET channel_id = $1 WHERE user_id = $2 RETURNING *",
+                thread.id,
                 message.author.id,
             )
             if not row:
                 return
             dm.update(row)
-        assert dm.wh_url
-        webhook = discord.Webhook.from_url(dm.wh_url, session=self.bot.session)
 
-        content = message.content
+        if BANNED_TAG_ID in thread._applied_tags:
+            return await message.author.send("You are blacklisted from the modmail.")
 
-        reference = message.reference
-        if reference and reference.message_id:
-            msgs = discord.utils.find(
-                lambda x: x[0].id == reference.message_id, dm.messages
-            )
-            if msgs:
-                content += f"\n\n*replying to [this message](<{msgs[1].jump_url}>)*"
-
-        files = [
-            await a.to_file()
-            for a in message.attachments
-            if a.size <= self.dm_category.guild.filesize_limit
-        ]
-
-        if len(files) > len(message.attachments):
-            content += "\n\n*some files could not be sent due to filesize limit*"
-
-        try:
-            try:
-                wh_msg = await webhook.send(content=content, files=files, wait=True)
-                dm.messages.append((message, wh_msg))
-                await message.add_reaction("\N{WHITE HEAVY CHECK MARK}")
-            except discord.HTTPException:
-                await message.add_reaction("\N{WARNING SIGN}")
-        except discord.HTTPException:
-            pass
+        manager = await self.get_manager()
+        webhook = await manager.get_webhook(thread.id)
+        await webhook.send(message=message, thread=thread, dm=dm)
 
     async def process_message(self, message: discord.Message, dm: DM) -> None:
         user = self.bot.get_user(dm.user_id)
         if not user:
-            await message.channel.send(
-                embed=discord.Embed(title="No mutual guilds."), delete_after=5
-            )
-            return await message.delete()
+            await message.channel.send(embed=discord.Embed(title="No mutual guilds."), delete_after=5)
+            return await message.add_reaction('\N{NO ENTRY}')
 
         content = f"**{message.author}:** {message.content}"
-        reference = message.reference
-        reply: discord.Message = None  # type: ignore
-        if reference and reference.message_id:
-            msgs = discord.utils.find(
-                lambda x: x[1].id == reference.message_id, dm.messages
-            )
-            if msgs:
-                reply = msgs[0]
 
-        files = [
-            await a.to_file()
-            for a in message.attachments
-            if a.size <= self.dm_category.guild.filesize_limit
-        ]
+        reply = None
+        reference = message.reference
+        if reference and reference.message_id:
+
+            found_messages = discord.utils.find(lambda x: x[1].id == reference.message_id, dm.messages)
+            if found_messages:
+                reply = discord.MessageReference(
+                    message_id=found_messages[0].id,
+                    channel_id=found_messages[0].channel.id,
+                    guild_id=None,
+                    fail_if_not_exists=False,
+                )
+
+        content = message.content + '\n'
+        files: list[discord.File] = []
+        errored: list[str] = []
+        for attachment in message.attachments:
+            if attachment.size < self.forum_channel.guild.filesize_limit:
+                files.append(await attachment.to_file())
+            else:
+                errored.append(f"[{attachment.filename}]({attachment.url})")
+
+        if errored:
+            content += f"\n-# Some files could not be sent. Here are links instead: {', '.join(errored)}"
 
         if len(files) > len(message.attachments):
             content += "\n\n*some files could not be sent due to filesize limit*"
@@ -198,25 +283,28 @@ class ModMail(commands.Cog):
             try:
                 msg = await user.send(content=content, files=files, reference=reply)
             except discord.HTTPException:
-                await message.delete()
-                await message.channel.send(
-                    embed=discord.Embed(title="User has DMs closed."), delete_after=5
-                )
+                await message.channel.send(embed=discord.Embed(title="User has DMs closed."), delete_after=5)
+                return await message.add_reaction('\N{NO ENTRY}')
             else:
                 dm.messages.append((msg, message))
         except discord.HTTPException:
             pass
 
-    async def find_msgs(
+    async def find_thread_messages(
         self, data: discord.RawMessageDeleteEvent | discord.RawMessageUpdateEvent
-    ) -> tuple[discord.Message, discord.Message, DM, int] | None:
-        cht = 0  # 0 = DM ; 1 = GUILD
+    ) -> tuple[discord.Message, discord.Message, DM, bool] | None:
+        is_guild = False
+        dm = None
         if data.guild_id:
-            cht = 1
-            channel = self.dm_category.guild.get_channel(data.channel_id)
-            if not channel or channel.category != self.dm_category:
+            is_guild = True
+            thread = self.forum_channel.get_thread(data.channel_id)
+            if not thread:
+                thread = await self.forum_channel.guild.fetch_channel(data.channel_id)
+
+            if not isinstance(thread, discord.Thread) or thread.parent != self.forum_channel:
                 return
-            dm = await self.get_dm_object(channel)  # type: ignore
+            dm = await self.get_dm_object(thread)
+
         else:
             if data.cached_message:
                 dm = await self.get_dm_object(data.cached_message.author)
@@ -225,55 +313,54 @@ class ModMail(commands.Cog):
                     channel = await self.bot.fetch_channel(data.channel_id)
                 except discord.HTTPException:
                     return
+
                 if isinstance(channel, discord.DMChannel):
                     if channel.recipient:
                         dm = await self.get_dm_object(channel.recipient)
-                    else:
-                        dm = None
-                else:
-                    dm = await self.get_dm_object(channel)  # type: ignore  # how?
-                    cht = 1
 
         if not dm:
             return
-        msgs = discord.utils.find(lambda m: m[cht].id == data.message_id, dm.messages)
+        msgs = discord.utils.find(lambda m: m[int(is_guild)].id == data.message_id, dm.messages)
         if msgs:
-            return *msgs, dm, cht
+            return *msgs, dm, is_guild
 
     @commands.Cog.listener("on_raw_message_delete")
     async def delete_listener(self, data: discord.RawMessageDeleteEvent):
-        stuff = await self.find_msgs(data)
-        if not stuff:
+        message_data = await self.find_thread_messages(data)
+        if not message_data:
             return
-        dm_message, staff_message, dm, cht = stuff
+
+        dm_message, staff_message, dm, is_message_from_guild = message_data
         dm.messages.remove((dm_message, staff_message))
-        if cht:
+
+        if is_message_from_guild:
             await dm_message.delete()
         else:
             await staff_message.edit(
                 content=None,
-                embed=discord.Embed(
-                    description=staff_message.content, color=discord.Color.red()
-                ).set_footer(text="deleted message"),
+                embed=discord.Embed(description=staff_message.content, color=discord.Color.red()).set_footer(
+                    text="deleted message"
+                ),
             )
 
     @commands.Cog.listener("on_raw_message_edit")
     async def update_listener(self, data: discord.RawMessageUpdateEvent):
         if data.data.get("author", {}).get("bot"):
             return
-        stuff = await self.find_msgs(data)
-        if not stuff:
+
+        message_data = await self.find_thread_messages(data)
+
+        if not message_data:
             return
-        dm_message, staff_message, _, cht = stuff
-        if cht:  # if message belongs to a guild
-            new_message = discord.Message(
-                state=self.bot._connection,
-                channel=staff_message.channel,
-                data=data.data,
-            )
-            await dm_message.edit(content=new_message.content)
+
+        dm_message, staff_message, _, is_message_from_guild = message_data
+        content = data.data["content"]
+
+        if is_message_from_guild:
+            await dm_message.edit(content=content)
         else:
-            new_message = discord.Message(
-                state=self.bot._connection, channel=dm_message.channel, data=data.data
-            )
-            await staff_message.edit(content=new_message.content)
+            await staff_message.edit(content=content)
+
+
+async def setup(bot: commands.Bot):
+    await bot.add_cog(ModMail(bot))
